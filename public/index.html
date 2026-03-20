@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gib Meme — Market Dashboard</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      background: #000;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    #app { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .header h1 { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: 0.5px; }
+    .header .updated { font-size: 12px; color: #666; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid #222;
+      margin-bottom: 24px;
+    }
+    .tab {
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #666;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+      font-family: inherit;
+    }
+    .tab:hover { color: #aaa; }
+    .tab.active { color: #fff; border-bottom-color: #fff; }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      text-align: left;
+      padding: 10px 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #666;
+      border-bottom: 1px solid #222;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    thead th:hover { color: #999; }
+    thead th.sorted { color: #fff; }
+    thead th .arrow { font-size: 10px; margin-left: 4px; }
+    tbody tr { border-bottom: 1px solid #111; transition: background 0.1s; }
+    tbody tr:hover { background: #0a0a0a; }
+    td { padding: 10px 12px; white-space: nowrap; }
+    td.name { font-weight: 600; color: #fff; }
+    td.rank { color: #444; font-size: 11px; width: 36px; }
+
+    .positive { color: #22c55e; }
+    .negative { color: #ef4444; }
+    .neutral  { color: #666; }
+
+    /* Chart page */
+    .chart-container { width: 100%; height: 500px; }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .legend-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: #111;
+      border: 1px solid #222;
+      font-size: 12px;
+      color: #ccc;
+    }
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .legend-remove {
+      cursor: pointer;
+      color: #555;
+      font-size: 14px;
+      line-height: 1;
+      margin-left: 2px;
+    }
+    .legend-remove:hover { color: #ef4444; }
+
+    .chart-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .add-btn {
+      padding: 6px 14px;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #ccc;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .add-btn:hover { background: #1a1a1a; border-color: #555; }
+    .add-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .dropdown {
+      position: relative;
+      display: inline-block;
+    }
+    .dropdown-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      z-index: 100;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 6px;
+      width: 220px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 4px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    }
+    .dropdown-search {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0a0a0a;
+      border: none;
+      border-bottom: 1px solid #222;
+      color: #e0e0e0;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+    }
+    .dropdown-item {
+      padding: 8px 12px;
+      font-size: 12px;
+      color: #ccc;
+      cursor: pointer;
+    }
+    .dropdown-item:hover { background: #1a1a1a; }
+    .dropdown-item.disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .days-select {
+      padding: 6px 10px;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #ccc;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 200px;
+      color: #444;
+      font-size: 14px;
+    }
+
+    @media (max-width: 700px) {
+      .header h1 { font-size: 16px; }
+      table { font-size: 12px; }
+      td, thead th { padding: 8px 6px; }
+      .chart-container { height: 350px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="header">
+    <h1>GIB MEME MARKET</h1>
+    <span class="updated" v-if="lastUpdated">Updated {{ timeAgo(lastUpdated) }}</span>
+  </div>
+
+  <div class="tabs">
+    <button class="tab" :class="{ active: tab === 'table' }" @click="switchTab('table')">Table</button>
+    <button class="tab" :class="{ active: tab === 'chart' }" @click="switchTab('chart')">Chart</button>
+  </div>
+
+  <!-- TABLE TAB -->
+  <div v-if="tab === 'table'">
+    <div v-if="tableLoading" class="loading">Loading market data...</div>
+    <div v-else class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:36px">#</th>
+            <th :class="{ sorted: sortCol === 'ticker' }" @click="setSort('ticker')">
+              Name <span class="arrow" v-if="sortCol === 'ticker'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th :class="{ sorted: sortCol === 'power' }" @click="setSort('power')">
+              Power <span class="arrow" v-if="sortCol === 'power'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th :class="{ sorted: sortCol === 'volume' }" @click="setSort('volume')">
+              24h Vol <span class="arrow" v-if="sortCol === 'volume'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th :class="{ sorted: sortCol === 'change_7d' }" @click="setSort('change_7d')">
+              % 7D <span class="arrow" v-if="sortCol === 'change_7d'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th :class="{ sorted: sortCol === 'market_cap' }" @click="setSort('market_cap')">
+              MC <span class="arrow" v-if="sortCol === 'market_cap'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(coin, i) in sortedCoins" :key="coin.ticker">
+            <td class="rank">{{ i + 1 }}</td>
+            <td class="name">{{ coin.ticker }}</td>
+            <td :class="powerClass(coin.power)">{{ fmtPower(coin.power) }}</td>
+            <td>{{ fmtUsd(coin.volume) }}</td>
+            <td :class="changeClass(coin.change_7d)">{{ fmtPct(coin.change_7d) }}</td>
+            <td>{{ fmtUsd(coin.market_cap) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CHART TAB -->
+  <div v-if="tab === 'chart'">
+    <div class="chart-controls">
+      <div class="dropdown">
+        <button class="add-btn" @click="showDropdown = !showDropdown" :disabled="activeCoins.length >= 15">
+          + Add Coin
+        </button>
+        <div class="dropdown-menu" v-if="showDropdown">
+          <input
+            class="dropdown-search"
+            v-model="searchQuery"
+            placeholder="Search coins..."
+            ref="searchInput"
+          />
+          <div
+            v-for="coin in filteredCoinList"
+            :key="coin.ticker"
+            class="dropdown-item"
+            :class="{ disabled: isCoinActive(coin.ticker) }"
+            @click="addCoin(coin.ticker)"
+          >
+            {{ coin.ticker }}
+          </div>
+        </div>
+      </div>
+      <select class="days-select" v-model="chartDays" @change="fetchChartData">
+        <option value="1">1 Day</option>
+        <option value="3">3 Days</option>
+        <option value="7">7 Days</option>
+        <option value="14">14 Days</option>
+        <option value="30">30 Days</option>
+      </select>
+    </div>
+
+    <div class="chart-legend">
+      <div class="legend-pill" v-for="coin in activeCoins" :key="coin.ticker">
+        <span class="legend-dot" :style="{ background: coin.color }"></span>
+        {{ coin.ticker }}
+        <span class="legend-remove" @click="removeCoin(coin.ticker)" v-if="activeCoins.length > 1">&times;</span>
+      </div>
+    </div>
+
+    <div v-if="chartLoading" class="loading">Loading chart data...</div>
+    <div class="chart-container" ref="chartEl"></div>
+  </div>
+</div>
+
+<script>
+const CHART_COLORS = [
+  '#ef4444','#3b82f6','#22c55e','#f59e0b','#8b5cf6',
+  '#ec4899','#f97316','#06b6d4','#a3e635','#f43f5e',
+  '#14b8a6','#e879f9','#facc15','#38bdf8','#fb923c'
+];
+
+const { createApp, ref, computed, watch, nextTick, onMounted } = Vue;
+
+createApp({
+  setup() {
+    const tab = ref('table');
+    const tableLoading = ref(false);
+    const chartLoading = ref(false);
+    const lastUpdated = ref(null);
+
+    // ── Table state ──
+    const coins = ref([]);
+    const sortCol = ref('power');
+    const sortDir = ref('desc');
+
+    const sortedCoins = computed(() => {
+      const arr = [...coins.value];
+      arr.sort((a, b) => {
+        let va = a[sortCol.value];
+        let vb = b[sortCol.value];
+        if (sortCol.value === 'ticker') {
+          va = va || ''; vb = vb || '';
+          return sortDir.value === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+        }
+        va = Number(va) || 0; vb = Number(vb) || 0;
+        return sortDir.value === 'asc' ? va - vb : vb - va;
+      });
+      return arr;
+    });
+
+    function setSort(col) {
+      if (sortCol.value === col) {
+        sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortCol.value = col;
+        sortDir.value = col === 'ticker' ? 'asc' : 'desc';
+      }
+    }
+
+    // ── Chart state ──
+    const activeCoins = ref([]);
+    const showDropdown = ref(false);
+    const searchQuery = ref('');
+    const chartDays = ref('7');
+    const allCoins = ref([]);
+    const chartEl = ref(null);
+    let chartInstance = null;
+    const searchInput = ref(null);
+
+    const filteredCoinList = computed(() => {
+      const q = searchQuery.value.toLowerCase();
+      return allCoins.value.filter(c =>
+        c.ticker.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q)
+      );
+    });
+
+    function isCoinActive(ticker) {
+      return activeCoins.value.some(c => c.ticker === ticker);
+    }
+
+    function nextColor() {
+      const used = new Set(activeCoins.value.map(c => c.color));
+      return CHART_COLORS.find(c => !used.has(c)) || CHART_COLORS[0];
+    }
+
+    // ── Data fetching ──
+    async function fetchTable() {
+      tableLoading.value = true;
+      try {
+        const res = await fetch('/api/latest');
+        const data = await res.json();
+        coins.value = data;
+        if (data.length) lastUpdated.value = new Date(data[0].ts);
+      } catch (e) {
+        console.error('Failed to fetch table data:', e);
+      }
+      tableLoading.value = false;
+    }
+
+    async function fetchCoinList() {
+      try {
+        const res = await fetch('/api/coins?status=active');
+        allCoins.value = await res.json();
+      } catch (e) {
+        console.error('Failed to fetch coin list:', e);
+      }
+    }
+
+    async function fetchChartData() {
+      if (!activeCoins.value.length) return;
+      chartLoading.value = true;
+      try {
+        const tickers = activeCoins.value.map(c => c.ticker).join(',');
+        const res = await fetch(`/api/history?tickers=${encodeURIComponent(tickers)}&days=${chartDays.value}`);
+        const data = await res.json();
+        for (const coin of activeCoins.value) {
+          coin.points = data[coin.ticker] || [];
+        }
+        renderChart();
+      } catch (e) {
+        console.error('Failed to fetch chart data:', e);
+      }
+      chartLoading.value = false;
+    }
+
+    async function initChart() {
+      // Load coin list, table data, then set top 10 by power
+      await fetchCoinList();
+      if (!coins.value.length) await fetchTable();
+
+      const top10 = [...coins.value]
+        .sort((a, b) => Math.abs(Number(b.power) || 0) - Math.abs(Number(a.power) || 0))
+        .slice(0, 10);
+
+      activeCoins.value = top10.map((c, i) => ({
+        ticker: c.ticker,
+        color: CHART_COLORS[i % CHART_COLORS.length],
+        points: [],
+      }));
+
+      await fetchChartData();
+    }
+
+    async function addCoin(ticker) {
+      if (isCoinActive(ticker) || activeCoins.value.length >= 15) return;
+      showDropdown.value = false;
+      searchQuery.value = '';
+
+      activeCoins.value.push({
+        ticker,
+        color: nextColor(),
+        points: [],
+      });
+
+      await fetchChartData();
+    }
+
+    function removeCoin(ticker) {
+      activeCoins.value = activeCoins.value.filter(c => c.ticker !== ticker);
+      renderChart();
+    }
+
+    function renderChart() {
+      if (!chartEl.value) return;
+      if (!chartInstance) {
+        chartInstance = echarts.init(chartEl.value, 'dark');
+        chartInstance.getZr().dom.style.background = '#000';
+      }
+
+      // Collect all unique timestamps across all coins
+      const allTimes = new Set();
+      for (const coin of activeCoins.value) {
+        for (const pt of coin.points) allTimes.add(pt.ts);
+      }
+      const times = [...allTimes].sort();
+
+      const formatTime = (ts) => {
+        const d = new Date(ts);
+        return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+      };
+
+      const series = activeCoins.value.map(coin => {
+        const byTime = {};
+        for (const pt of coin.points) byTime[pt.ts] = Number(pt.power);
+        return {
+          name: coin.ticker,
+          type: 'line',
+          smooth: 0.3,
+          symbol: 'none',
+          lineStyle: { color: coin.color, width: 2 },
+          itemStyle: { color: coin.color },
+          data: times.map(t => byTime[t] ?? null),
+          connectNulls: true,
+        };
+      });
+
+      chartInstance.setOption({
+        backgroundColor: '#000',
+        animation: false,
+        grid: { top: 20, right: 20, bottom: 60, left: 70 },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: '#111',
+          borderColor: '#333',
+          textStyle: { color: '#e0e0e0', fontSize: 12, fontFamily: 'monospace' },
+          formatter: (params) => {
+            let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
+            for (const p of params) {
+              if (p.value == null) continue;
+              const color = p.color;
+              const val = Number(p.value).toFixed(2);
+              const sign = p.value >= 0 ? '+' : '';
+              const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
+              html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+                <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block"></span>
+                <span>${p.seriesName}</span>
+                <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
+              </div>`;
+            }
+            return html;
+          },
+        },
+        xAxis: {
+          type: 'category',
+          data: times.map(formatTime),
+          axisLine: { lineStyle: { color: '#222' } },
+          axisLabel: { color: '#555', fontSize: 10, rotate: 45 },
+          splitLine: { show: false },
+        },
+        yAxis: {
+          type: 'value',
+          name: 'Power',
+          nameTextStyle: { color: '#555', fontSize: 11 },
+          axisLine: { show: false },
+          axisLabel: { color: '#555', fontSize: 11 },
+          splitLine: { lineStyle: { color: '#151515' } },
+        },
+        dataZoom: [
+          { type: 'inside', start: 0, end: 100, minSpan: 5 },
+        ],
+        series,
+      }, { replaceMerge: ['series'] });
+    }
+
+    // ── Tab switching ──
+    let chartInited = false;
+    async function switchTab(t) {
+      tab.value = t;
+      if (t === 'table' && !coins.value.length) fetchTable();
+      if (t === 'chart' && !chartInited) {
+        chartInited = true;
+        await nextTick();
+        await initChart();
+      }
+    }
+
+    // ── Formatters ──
+    function fmtUsd(v) {
+      const n = Number(v);
+      if (!n && n !== 0) return '—';
+      if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+      if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+      if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+      return '$' + n.toFixed(2);
+    }
+
+    function fmtPct(v) {
+      const n = Number(v);
+      if (isNaN(n)) return '—';
+      return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+    }
+
+    function fmtPower(v) {
+      const n = Number(v);
+      if (isNaN(n) || v === null) return '—';
+      return (n >= 0 ? '+' : '') + n.toFixed(2);
+    }
+
+    function powerClass(v) {
+      const n = Number(v);
+      if (isNaN(n) || v === null) return 'neutral';
+      return n >= 0 ? 'positive' : 'negative';
+    }
+
+    function changeClass(v) {
+      const n = Number(v);
+      if (isNaN(n)) return 'neutral';
+      return n >= 0 ? 'positive' : 'negative';
+    }
+
+    function timeAgo(date) {
+      const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+      if (secs < 60) return 'just now';
+      if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+      if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+      return Math.floor(secs / 86400) + 'd ago';
+    }
+
+    // ── Resize ──
+    window.addEventListener('resize', () => {
+      if (chartInstance) chartInstance.resize();
+    });
+
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.dropdown')) showDropdown.value = false;
+    });
+
+    // Watch for dropdown open to focus search
+    watch(showDropdown, async (val) => {
+      if (val) {
+        await nextTick();
+        searchInput.value?.focus();
+      }
+    });
+
+    // Auto-fetch table on mount
+    onMounted(() => fetchTable());
+
+    return {
+      tab, switchTab,
+      tableLoading, chartLoading, lastUpdated,
+      coins, sortedCoins, sortCol, sortDir, setSort,
+      activeCoins, showDropdown, searchQuery, searchInput,
+      chartDays, filteredCoinList, chartEl,
+      isCoinActive, addCoin, removeCoin, fetchChartData,
+      fmtUsd, fmtPct, fmtPower, powerClass, changeClass, timeAgo,
+    };
+  },
+}).mount('#app');
+</script>
+</body>
+</html>
