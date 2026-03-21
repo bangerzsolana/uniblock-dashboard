@@ -528,6 +528,8 @@ createApp({
 
     async function setPreset(preset) {
       chartPreset.value = preset;
+      hoveredCoin.value = null;
+      selectedCoins.value = [];
       await fetchCoinList();
       if (!coins.value.length) await fetchTable();
 
