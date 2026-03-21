@@ -439,6 +439,7 @@ createApp({
     const hoveredCoin = ref(null);
     const selectedCoins = ref([]);
     const lastAxisParams = ref([]);
+    let cursorYValue = null; // track cursor y-axis value for nearest-line detection
 
     const presetDescription = computed(() => {
       const descs = {
@@ -526,7 +527,7 @@ createApp({
       const byAbsPower = [...coins.value].sort((a, b) =>
         Math.abs(Number(b.power) || 0) - Math.abs(Number(a.power) || 0)
       );
-      if (preset === 'top10') return byAbsPower.slice(0, 10);
+      if (preset === 'top10') return byAbsPower.filter(c => Number(c.power) !== 0).slice(0, 10);
       if (preset === 'best_worst') {
         const best5 = byPowerDesc.slice(0, 5);
         const worst5 = byPowerDesc.slice(-5).reverse();
@@ -690,33 +691,45 @@ createApp({
                 const withData = params.filter(p => p.value != null);
                 if (!withData.length) return '';
 
-                // Sort by absolute power
-                const sorted = [...withData].sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
-                // Store for click-to-pin
-                lastAxisParams.value = sorted;
-
-                // Pinned coins always shown + top unpinned
-                const pinnedItems = sorted.filter(p => pinned.has(p.seriesName));
-                const unpinnedTop = sorted
-                  .filter(p => !pinned.has(p.seriesName))
-                  .slice(0, pinnedItems.length ? 3 : 5);
-                const shown = [...pinnedItems, ...unpinnedTop];
-
-                // Update hoveredCoin label area
-                const top = sorted[0];
-                if (top) {
-                  hoveredCoin.value = { name: top.seriesName, power: Number(top.value) };
+                // Find the series closest to cursor y-position
+                let nearest = withData[0];
+                if (cursorYValue !== null) {
+                  let minDist = Infinity;
+                  for (const p of withData) {
+                    const dist = Math.abs(Number(p.value) - cursorYValue);
+                    if (dist < minDist) { minDist = dist; nearest = p; }
+                  }
                 }
+
+                // Store for click-to-pin (nearest first)
+                lastAxisParams.value = [nearest, ...withData.filter(p => p !== nearest)];
+
+                // Update hoveredCoin label to nearest line
+                hoveredCoin.value = { name: nearest.seriesName, power: Number(nearest.value) };
+
+                // Temporarily highlight the nearest line
+                chartInstance.dispatchAction({ type: 'highlight', seriesName: nearest.seriesName });
+
+                // Show: nearest coin + pinned coins + a few top movers
+                const pinnedItems = withData.filter(p => pinned.has(p.seriesName) && p !== nearest);
+                const topMovers = [...withData]
+                  .filter(p => !pinned.has(p.seriesName) && p !== nearest)
+                  .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+                  .slice(0, 3);
+                const shown = [nearest, ...pinnedItems, ...topMovers];
 
                 let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
                 for (const p of shown) {
                   const val = Number(p.value).toFixed(2);
                   const sign = p.value >= 0 ? '+' : '';
                   const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
+                  const isNearest = p === nearest;
                   const isPinned = pinned.has(p.seriesName);
+                  const nameColor = isNearest ? '#fff' : isPinned ? '#fff' : '#888';
+                  const dotColor = isNearest ? '#22c55e' : isPinned ? '#fff' : '#555';
                   html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
-                    <span style="width:8px;height:8px;border-radius:50%;background:${isPinned ? '#fff' : '#888'};display:inline-block"></span>
-                    <span style="color:${isPinned ? '#fff' : '#ccc'}">${p.seriesName}</span>
+                    <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};display:inline-block"></span>
+                    <span style="color:${nameColor};font-weight:${isNearest ? '700' : '400'}">${p.seriesName}</span>
                     <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
                   </div>`;
                 }
@@ -769,11 +782,20 @@ createApp({
         series,
       }, { replaceMerge: ['series'] });
 
-      // Wire up click-to-pin for all-coins mode using last tooltip data
+      // Wire up interactions for all-coins mode
       chartInstance.getZr().off('click');
+      chartInstance.getZr().off('mousemove');
+      chartInstance.getZr().off('globalout');
       if (isAllMode) {
+        // Track cursor y-value for nearest-line detection
+        chartInstance.getZr().on('mousemove', (e) => {
+          try {
+            const point = chartInstance.convertFromPixel({ gridIndex: 0 }, [e.offsetX, e.offsetY]);
+            if (point) cursorYValue = point[1];
+          } catch (_) {}
+        });
+        // Click to pin/unpin nearest coin
         chartInstance.getZr().on('click', () => {
-          // Pin the top coin from the last tooltip hover
           const top = lastAxisParams.value[0];
           if (!top) return;
           const ticker = top.seriesName;
@@ -784,10 +806,11 @@ createApp({
           }
           updateHighlights();
         });
-        // Clear hoveredCoin when mouse leaves chart
-        chartInstance.getZr().off('mouseout');
+        // Clear hover state when mouse leaves chart
         chartInstance.getZr().on('globalout', () => {
           hoveredCoin.value = null;
+          cursorYValue = null;
+          chartInstance.dispatchAction({ type: 'downplay' });
         });
       }
     }
