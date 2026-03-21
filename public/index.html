@@ -134,6 +134,24 @@
     .add-btn:hover { background: #1a1a1a; border-color: #555; }
     .add-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
+    .preset-toggles {
+      display: flex;
+      gap: 6px;
+    }
+    .preset-btn {
+      padding: 5px 12px;
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 4px;
+      color: #666;
+      font-size: 11px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .preset-btn:hover { border-color: #444; color: #aaa; }
+    .preset-btn.active { border-color: #555; color: #fff; background: #1a1a1a; }
+
     .dropdown {
       position: relative;
       display: inline-block;
@@ -254,7 +272,13 @@
   <!-- CHART TAB -->
   <div v-show="tab === 'chart'">
     <div class="chart-controls">
-      <div class="dropdown">
+      <div class="preset-toggles">
+        <button class="preset-btn" :class="{ active: chartPreset === 'top10' }" @click="setPreset('top10')">Top 10</button>
+        <button class="preset-btn" :class="{ active: chartPreset === 'candidates' }" @click="setPreset('candidates')">Candidates</button>
+        <button class="preset-btn" :class="{ active: chartPreset === 'all' }" @click="setPreset('all')">All Coins</button>
+        <button class="preset-btn" :class="{ active: chartPreset === 'custom' }" @click="setPreset('custom')">Custom</button>
+      </div>
+      <div class="dropdown" v-if="chartPreset === 'custom'">
         <button class="add-btn" @click="showDropdown = !showDropdown" :disabled="activeCoins.length >= 15">
           + Add Coin
         </button>
@@ -285,12 +309,15 @@
       </select>
     </div>
 
-    <div class="chart-legend">
+    <div class="chart-legend" v-if="chartPreset !== 'all'">
       <div class="legend-pill" v-for="coin in activeCoins" :key="coin.ticker">
         <span class="legend-dot" :style="{ background: coin.color }"></span>
         {{ coin.ticker }}
-        <span class="legend-remove" @click="removeCoin(coin.ticker)" v-if="activeCoins.length > 1">&times;</span>
+        <span class="legend-remove" @click="removeCoin(coin.ticker)" v-if="chartPreset === 'custom' && activeCoins.length > 1">&times;</span>
       </div>
+    </div>
+    <div v-if="chartPreset === 'all'" style="font-size:11px;color:#555;margin-bottom:12px">
+      Hover over lines to identify coins. {{ activeCoins.length }} coins loaded.
     </div>
 
     <div v-if="chartLoading" class="loading">Loading chart data...</div>
@@ -352,6 +379,7 @@ createApp({
     const chartEl = ref(null);
     let chartInstance = null;
     const searchInput = ref(null);
+    const chartPreset = ref('top10');
 
     const filteredCoinList = computed(() => {
       const q = searchQuery.value.toLowerCase();
@@ -419,21 +447,45 @@ createApp({
       chartLoading.value = false;
     }
 
-    async function initChart() {
-      // Load coin list, table data, then set top 10 by power
+    function getCoinsForPreset(preset) {
+      const sorted = [...coins.value].sort((a, b) =>
+        Math.abs(Number(b.power) || 0) - Math.abs(Number(a.power) || 0)
+      );
+      if (preset === 'top10') return sorted.slice(0, 10);
+      if (preset === 'candidates') return sorted.filter(c => c.status === 'candidate');
+      if (preset === 'all') return sorted;
+      return []; // custom — user picks manually
+    }
+
+    function buildActiveCoins(coinList, preset) {
+      const isAllMode = preset === 'all';
+      return coinList.map((c, i) => ({
+        ticker: c.ticker,
+        color: isAllMode ? '#333' : CHART_COLORS[i % CHART_COLORS.length],
+        points: [],
+      }));
+    }
+
+    async function setPreset(preset) {
+      chartPreset.value = preset;
       await fetchCoinList();
       if (!coins.value.length) await fetchTable();
 
-      const top10 = [...coins.value]
-        .sort((a, b) => Math.abs(Number(b.power) || 0) - Math.abs(Number(a.power) || 0))
-        .slice(0, 10);
+      if (preset === 'custom') {
+        // Keep current selection, just switch mode
+        if (!activeCoins.value.length) {
+          activeCoins.value = buildActiveCoins(getCoinsForPreset('top10'), 'custom');
+        }
+      } else {
+        activeCoins.value = buildActiveCoins(getCoinsForPreset(preset), preset);
+      }
+      await fetchChartData();
+    }
 
-      activeCoins.value = top10.map((c, i) => ({
-        ticker: c.ticker,
-        color: CHART_COLORS[i % CHART_COLORS.length],
-        points: [],
-      }));
-
+    async function initChart() {
+      await fetchCoinList();
+      if (!coins.value.length) await fetchTable();
+      activeCoins.value = buildActiveCoins(getCoinsForPreset('top10'), 'top10');
       await fetchChartData();
     }
 
@@ -475,46 +527,66 @@ createApp({
         return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
       };
 
+      const isAllMode = chartPreset.value === 'all';
       const series = activeCoins.value.map(coin => {
         const byTime = {};
         for (const pt of coin.points) byTime[pt.ts] = Number(pt.power);
-        return {
+        const s = {
           name: coin.ticker,
           type: 'line',
           smooth: 0.3,
           symbol: 'none',
-          lineStyle: { color: coin.color, width: 2 },
+          lineStyle: { color: coin.color, width: isAllMode ? 1 : 2 },
           itemStyle: { color: coin.color },
           data: times.map(t => byTime[t] ?? null),
           connectNulls: true,
         };
+        if (isAllMode) {
+          s.emphasis = {
+            lineStyle: { color: '#fff', width: 3 },
+            itemStyle: { color: '#fff' },
+          };
+          s.triggerLineEvent = true;
+        }
+        return s;
       });
 
       chartInstance.setOption({
         backgroundColor: '#000',
         animation: false,
+        legend: { show: false },
         grid: { top: 20, right: 20, bottom: 60, left: 70 },
         tooltip: {
-          trigger: 'axis',
+          trigger: isAllMode ? 'item' : 'axis',
           backgroundColor: '#111',
           borderColor: '#333',
           textStyle: { color: '#e0e0e0', fontSize: 12, fontFamily: 'monospace' },
-          formatter: (params) => {
-            let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
-            for (const p of params) {
-              if (p.value == null) continue;
-              const color = p.color;
-              const val = Number(p.value).toFixed(2);
-              const sign = p.value >= 0 ? '+' : '';
-              const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
-              html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
-                <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block"></span>
-                <span>${p.seriesName}</span>
-                <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
-              </div>`;
-            }
-            return html;
-          },
+          formatter: isAllMode
+            ? (params) => {
+                const p = Array.isArray(params) ? params[0] : params;
+                if (!p || p.value == null) return '';
+                const val = Number(p.value).toFixed(2);
+                const sign = p.value >= 0 ? '+' : '';
+                const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
+                return `<div style="font-weight:600;margin-bottom:4px">${p.seriesName}</div>
+                  <span style="color:${valColor}">${sign}${val}</span>`;
+              }
+            : (params) => {
+                let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
+                for (const p of params) {
+                  if (p.value == null) continue;
+                  const color = p.color;
+                  const val = Number(p.value).toFixed(2);
+                  const sign = p.value >= 0 ? '+' : '';
+                  const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
+                  html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block"></span>
+                    <span>${p.seriesName}</span>
+                    <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
+                  </div>`;
+                }
+                return html;
+              },
         },
         xAxis: {
           type: 'category',
@@ -628,8 +700,8 @@ createApp({
       tableLoading, chartLoading, lastUpdated,
       coins, sortedCoins, sortCol, sortDir, setSort,
       activeCoins, showDropdown, searchQuery, searchInput,
-      chartDays, filteredCoinList, chartEl,
-      isCoinActive, addCoin, removeCoin, fetchChartData,
+      chartDays, filteredCoinList, chartEl, chartPreset,
+      isCoinActive, addCoin, removeCoin, fetchChartData, setPreset,
       fmtUsd, fmtPct, fmtPower, powerClass, changeClass, timeAgo,
     };
   },
