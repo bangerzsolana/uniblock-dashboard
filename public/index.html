@@ -71,6 +71,8 @@
     thead th .arrow { font-size: 10px; margin-left: 4px; }
     tbody tr { border-bottom: 1px solid #111; transition: background 0.1s; }
     tbody tr:hover { background: #0a0a0a; }
+    tbody tr.candidate { background: #0d0d0d; }
+    tbody tr.candidate:hover { background: #121212; }
     td { padding: 10px 12px; white-space: nowrap; }
     td.name { font-weight: 600; color: #fff; }
     td.rank { color: #444; font-size: 11px; width: 36px; }
@@ -236,7 +238,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(coin, i) in sortedCoins" :key="coin.ticker">
+          <tr v-for="(coin, i) in sortedCoins" :key="coin.ticker" :class="{ candidate: coin.status === 'candidate' }">
             <td class="rank">{{ i + 1 }}</td>
             <td class="name">{{ coin.ticker }}</td>
             <td :class="powerClass(coin.power)">{{ fmtPower(coin.power) }}</td>
@@ -371,9 +373,18 @@ createApp({
     async function fetchTable() {
       tableLoading.value = true;
       try {
-        const res = await fetch('/api/latest');
-        const data = await res.json();
-        coins.value = data;
+        const [latestRes, coinsRes] = await Promise.all([
+          fetch('/api/latest'),
+          fetch('/api/coins'),
+        ]);
+        const data = await latestRes.json();
+        const coinList = await coinsRes.json();
+        // Build status lookup from coin list
+        const statusMap = {};
+        for (const c of coinList) statusMap[c.ticker] = c.status || 'active';
+        // Merge status into snapshot data
+        coins.value = data.map(d => ({ ...d, status: statusMap[d.ticker] || 'active' }));
+        allCoins.value = coinList;
         if (data.length) lastUpdated.value = new Date(data[0].ts);
       } catch (e) {
         console.error('Failed to fetch table data:', e);
@@ -382,8 +393,9 @@ createApp({
     }
 
     async function fetchCoinList() {
+      if (allCoins.value.length) return;
       try {
-        const res = await fetch('/api/coins?status=active');
+        const res = await fetch('/api/coins');
         allCoins.value = await res.json();
       } catch (e) {
         console.error('Failed to fetch coin list:', e);
@@ -508,7 +520,12 @@ createApp({
           type: 'category',
           data: times.map(formatTime),
           axisLine: { lineStyle: { color: '#222' } },
-          axisLabel: { color: '#555', fontSize: 10, rotate: 45 },
+          axisLabel: {
+            color: '#555',
+            fontSize: 10,
+            rotate: 30,
+            interval: Math.max(Math.floor(times.length / 8) - 1, 0),
+          },
           splitLine: { show: false },
         },
         yAxis: {
