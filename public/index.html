@@ -309,6 +309,7 @@
       <div class="preset-toggles">
         <button class="preset-btn" :class="{ active: chartPreset === 'top10' }" @click="setPreset('top10')">Top 10</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'best_worst' }" @click="setPreset('best_worst')">Best & Worst</button>
+        <button class="preset-btn" :class="{ active: chartPreset === 'swingers' }" @click="setPreset('swingers')">Swingers</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'game' }" @click="setPreset('game')">Game Coins</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'candidates' }" @click="setPreset('candidates')">Candidates</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'all' }" @click="setPreset('all')">All Coins</button>
@@ -344,6 +345,8 @@
         <option value="30">30 Days</option>
       </select>
     </div>
+
+    <div class="preset-desc" v-if="presetDescription">{{ presetDescription }}</div>
 
     <div class="chart-legend" v-if="chartPreset !== 'all' && chartPreset !== 'game'">
       <div class="legend-pill" v-for="coin in activeCoins" :key="coin.ticker">
@@ -437,6 +440,19 @@ createApp({
     const selectedCoins = ref([]);
     const lastAxisParams = ref([]);
 
+    const presetDescription = computed(() => {
+      const descs = {
+        top10: 'Top 10 coins by absolute power — the biggest movers in either direction.',
+        best_worst: 'Best 5 (highest power) vs Worst 5 (lowest power) side by side.',
+        swingers: 'Coins with power beyond +3 or -3 — everything in between is filtered out.',
+        game: 'All coins currently active in the game.',
+        candidates: 'Candidate coins being evaluated for addition to the game.',
+        all: 'Every tracked coin. Hover to identify, click to pin.',
+        custom: 'Pick your own coins to compare.',
+      };
+      return descs[chartPreset.value] || '';
+    });
+
     const filteredCoinList = computed(() => {
       const q = searchQuery.value.toLowerCase();
       return allCoins.value.filter(c =>
@@ -507,17 +523,25 @@ createApp({
       const byPowerDesc = [...coins.value].sort((a, b) =>
         (Number(b.power) || 0) - (Number(a.power) || 0)
       );
-      if (preset === 'top10') return byPowerDesc.slice(0, 10);
+      const byAbsPower = [...coins.value].sort((a, b) =>
+        Math.abs(Number(b.power) || 0) - Math.abs(Number(a.power) || 0)
+      );
+      if (preset === 'top10') return byAbsPower.slice(0, 10);
       if (preset === 'best_worst') {
         const best5 = byPowerDesc.slice(0, 5);
         const worst5 = byPowerDesc.slice(-5).reverse();
-        // Dedupe in case there are fewer than 10 coins
         const seen = new Set(best5.map(c => c.ticker));
         const combined = [...best5];
         for (const c of worst5) {
           if (!seen.has(c.ticker)) combined.push(c);
         }
         return combined;
+      }
+      if (preset === 'swingers') {
+        return byAbsPower.filter(c => {
+          const p = Math.abs(Number(c.power) || 0);
+          return p > 3;
+        });
       }
       if (preset === 'game') return byPowerDesc.filter(c => c.status === 'active');
       if (preset === 'candidates') return byPowerDesc.filter(c => c.status === 'candidate');
@@ -853,7 +877,7 @@ createApp({
       tableLoading, chartLoading, lastUpdated,
       coins, sortedCoins, sortCol, sortDir, setSort,
       activeCoins, showDropdown, searchQuery, searchInput,
-      chartDays, filteredCoinList, chartEl, chartPreset,
+      chartDays, filteredCoinList, chartEl, chartPreset, presetDescription,
       hoveredCoin, selectedCoins, deselectCoin,
       isCoinActive, addCoin, removeCoin, fetchChartData, setPreset,
       fmtUsd, fmtPct, fmtPower, powerClass, changeClass, timeAgo,
