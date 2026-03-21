@@ -213,7 +213,7 @@
   </div>
 
   <!-- TABLE TAB -->
-  <div v-if="tab === 'table'">
+  <div v-show="tab === 'table'">
     <div v-if="tableLoading" class="loading">Loading market data...</div>
     <div v-else class="table-wrap">
       <table>
@@ -252,7 +252,7 @@
   </div>
 
   <!-- CHART TAB -->
-  <div v-if="tab === 'chart'">
+  <div v-show="tab === 'chart'">
     <div class="chart-controls">
       <div class="dropdown">
         <button class="add-btn" @click="showDropdown = !showDropdown" :disabled="activeCoins.length >= 15">
@@ -524,7 +524,7 @@ createApp({
             color: '#555',
             fontSize: 10,
             rotate: 30,
-            interval: Math.max(Math.floor(times.length / 8) - 1, 0),
+            interval: Math.max(0, Math.floor(times.length / 8) - 1),
           },
           splitLine: { show: false },
         },
@@ -548,10 +548,15 @@ createApp({
     async function switchTab(t) {
       tab.value = t;
       if (t === 'table' && !coins.value.length) fetchTable();
-      if (t === 'chart' && !chartInited) {
-        chartInited = true;
-        await nextTick();
-        await initChart();
+      if (t === 'chart') {
+        if (!chartInited) {
+          chartInited = true;
+          await nextTick();
+          await initChart();
+        } else {
+          await nextTick();
+          if (chartInstance) chartInstance.resize();
+        }
       }
     }
 
