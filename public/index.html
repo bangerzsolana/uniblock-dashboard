@@ -179,6 +179,13 @@
     .preset-btn:hover { border-color: #444; color: #aaa; }
     .preset-btn.active { border-color: #555; color: #fff; background: #1a1a1a; }
 
+    .preset-desc {
+      font-size: 11px;
+      color: #444;
+      margin-bottom: 12px;
+      font-style: italic;
+    }
+
     .dropdown {
       position: relative;
       display: inline-block;
@@ -428,6 +435,7 @@ createApp({
     const chartPreset = ref('top10');
     const hoveredCoin = ref(null);
     const selectedCoins = ref([]);
+    const lastAxisParams = ref([]);
 
     const filteredCoinList = computed(() => {
       const q = searchQuery.value.toLowerCase();
@@ -650,21 +658,32 @@ createApp({
           backgroundColor: '#111',
           borderColor: '#333',
           textStyle: { color: '#e0e0e0', fontSize: 12, fontFamily: 'monospace' },
+          confine: true,
           formatter: isAllMode
             ? (params) => {
                 if (!Array.isArray(params) || !params.length) return '';
-                // Show pinned coins + the one closest to cursor
                 const pinned = new Set(selectedCoins.value);
                 const withData = params.filter(p => p.value != null);
                 if (!withData.length) return '';
-                let shown = withData.filter(p => pinned.has(p.seriesName));
-                // Find nearest non-pinned by y distance to cursor
-                const unpinned = withData.filter(p => !pinned.has(p.seriesName));
-                if (unpinned.length) {
-                  // Just show the top value coin if nothing is pinned
-                  unpinned.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
-                  shown.push(unpinned[0]);
+
+                // Sort by absolute power
+                const sorted = [...withData].sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+                // Store for click-to-pin
+                lastAxisParams.value = sorted;
+
+                // Pinned coins always shown + top unpinned
+                const pinnedItems = sorted.filter(p => pinned.has(p.seriesName));
+                const unpinnedTop = sorted
+                  .filter(p => !pinned.has(p.seriesName))
+                  .slice(0, pinnedItems.length ? 3 : 5);
+                const shown = [...pinnedItems, ...unpinnedTop];
+
+                // Update hoveredCoin label area
+                const top = sorted[0];
+                if (top) {
+                  hoveredCoin.value = { name: top.seriesName, power: Number(top.value) };
                 }
+
                 let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
                 for (const p of shown) {
                   const val = Number(p.value).toFixed(2);
@@ -676,6 +695,10 @@ createApp({
                     <span style="color:${isPinned ? '#fff' : '#ccc'}">${p.seriesName}</span>
                     <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
                   </div>`;
+                }
+                const remaining = withData.length - shown.length;
+                if (remaining > 0) {
+                  html += `<div style="color:#444;font-size:10px;margin-top:4px">+${remaining} more (click to pin)</div>`;
                 }
                 return html;
               }
@@ -722,28 +745,25 @@ createApp({
         series,
       }, { replaceMerge: ['series'] });
 
-      // Wire up hover/click events for all-coins mode
-      chartInstance.off('mouseover');
-      chartInstance.off('mouseout');
-      chartInstance.off('click');
+      // Wire up click-to-pin for all-coins mode using last tooltip data
+      chartInstance.getZr().off('click');
       if (isAllMode) {
-        chartInstance.on('mouseover', 'series', (params) => {
-          const lastPt = activeCoins.value.find(c => c.ticker === params.seriesName);
-          const pts = lastPt?.points || [];
-          const lastPower = pts.length ? Number(pts[pts.length - 1].power) || 0 : 0;
-          hoveredCoin.value = { name: params.seriesName, power: lastPower };
-        });
-        chartInstance.on('mouseout', 'series', () => {
-          hoveredCoin.value = null;
-        });
-        chartInstance.on('click', 'series', (params) => {
-          const ticker = params.seriesName;
+        chartInstance.getZr().on('click', () => {
+          // Pin the top coin from the last tooltip hover
+          const top = lastAxisParams.value[0];
+          if (!top) return;
+          const ticker = top.seriesName;
           if (selectedCoins.value.includes(ticker)) {
             selectedCoins.value = selectedCoins.value.filter(t => t !== ticker);
           } else {
             selectedCoins.value.push(ticker);
           }
           updateHighlights();
+        });
+        // Clear hoveredCoin when mouse leaves chart
+        chartInstance.getZr().off('mouseout');
+        chartInstance.getZr().on('globalout', () => {
+          hoveredCoin.value = null;
         });
       }
     }
