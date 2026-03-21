@@ -115,6 +115,33 @@
     }
     .legend-remove:hover { color: #ef4444; }
 
+    .legend-pill.selected {
+      border-color: #fff;
+      color: #fff;
+    }
+    .hover-label {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+    }
+    .hover-label .coin-name {
+      color: #fff;
+      font-weight: 600;
+    }
+    .hover-label .coin-power {
+      font-size: 11px;
+    }
+    .selected-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
     .chart-controls {
       display: flex;
       align-items: center;
@@ -274,6 +301,7 @@
     <div class="chart-controls">
       <div class="preset-toggles">
         <button class="preset-btn" :class="{ active: chartPreset === 'top10' }" @click="setPreset('top10')">Top 10</button>
+        <button class="preset-btn" :class="{ active: chartPreset === 'best_worst' }" @click="setPreset('best_worst')">Best & Worst</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'game' }" @click="setPreset('game')">Game Coins</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'candidates' }" @click="setPreset('candidates')">Candidates</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'all' }" @click="setPreset('all')">All Coins</button>
@@ -317,8 +345,25 @@
         <span class="legend-remove" @click="removeCoin(coin.ticker)" v-if="chartPreset === 'custom' && activeCoins.length > 1">&times;</span>
       </div>
     </div>
-    <div v-if="chartPreset === 'all' || chartPreset === 'game'" style="font-size:11px;color:#555;margin-bottom:12px">
-      Hover over lines to identify coins. {{ activeCoins.length }} {{ chartPreset === 'game' ? 'game' : '' }} coins loaded.
+    <div v-if="chartPreset === 'all' || chartPreset === 'game'">
+      <div class="selected-pills" v-if="selectedCoins.length">
+        <div class="legend-pill selected" v-for="ticker in selectedCoins" :key="ticker">
+          <span class="legend-dot" style="background:#fff"></span>
+          {{ ticker }}
+          <span class="legend-remove" @click="deselectCoin(ticker)">&times;</span>
+        </div>
+      </div>
+      <div class="hover-label">
+        <template v-if="hoveredCoin">
+          <span class="coin-name">{{ hoveredCoin.name }}</span>
+          <span class="coin-power" :class="hoveredCoin.power >= 0 ? 'positive' : 'negative'">
+            {{ hoveredCoin.power >= 0 ? '+' : '' }}{{ hoveredCoin.power.toFixed(2) }} power
+          </span>
+        </template>
+        <template v-else>
+          <span style="color:#555;font-size:11px">Hover to identify, click to pin. {{ activeCoins.length }} coins loaded.</span>
+        </template>
+      </div>
     </div>
 
     <div v-if="chartLoading" class="loading">Loading chart data...</div>
@@ -381,6 +426,8 @@ createApp({
     let chartInstance = null;
     const searchInput = ref(null);
     const chartPreset = ref('top10');
+    const hoveredCoin = ref(null);
+    const selectedCoins = ref([]);
 
     const filteredCoinList = computed(() => {
       const q = searchQuery.value.toLowerCase();
@@ -449,13 +496,24 @@ createApp({
     }
 
     function getCoinsForPreset(preset) {
-      const sorted = [...coins.value].sort((a, b) =>
-        Math.abs(Number(b.power) || 0) - Math.abs(Number(a.power) || 0)
+      const byPowerDesc = [...coins.value].sort((a, b) =>
+        (Number(b.power) || 0) - (Number(a.power) || 0)
       );
-      if (preset === 'top10') return sorted.slice(0, 10);
-      if (preset === 'game') return sorted.filter(c => c.status === 'active');
-      if (preset === 'candidates') return sorted.filter(c => c.status === 'candidate');
-      if (preset === 'all') return sorted;
+      if (preset === 'top10') return byPowerDesc.slice(0, 10);
+      if (preset === 'best_worst') {
+        const best5 = byPowerDesc.slice(0, 5);
+        const worst5 = byPowerDesc.slice(-5).reverse();
+        // Dedupe in case there are fewer than 10 coins
+        const seen = new Set(best5.map(c => c.ticker));
+        const combined = [...best5];
+        for (const c of worst5) {
+          if (!seen.has(c.ticker)) combined.push(c);
+        }
+        return combined;
+      }
+      if (preset === 'game') return byPowerDesc.filter(c => c.status === 'active');
+      if (preset === 'candidates') return byPowerDesc.filter(c => c.status === 'candidate');
+      if (preset === 'all') return byPowerDesc;
       return []; // custom — user picks manually
     }
 
@@ -510,6 +568,28 @@ createApp({
       renderChart();
     }
 
+    function deselectCoin(ticker) {
+      selectedCoins.value = selectedCoins.value.filter(t => t !== ticker);
+      updateHighlights();
+    }
+
+    function updateHighlights() {
+      if (!chartInstance) return;
+      const isAllMode = chartPreset.value === 'all' || chartPreset.value === 'game';
+      if (!isAllMode) return;
+
+      const pinned = new Set(selectedCoins.value);
+      const series = activeCoins.value.map(coin => ({
+        name: coin.ticker,
+        lineStyle: {
+          color: pinned.has(coin.ticker) ? '#fff' : '#333',
+          width: pinned.has(coin.ticker) ? 2.5 : 1,
+        },
+        z: pinned.has(coin.ticker) ? 10 : 1,
+      }));
+      chartInstance.setOption({ series });
+    }
+
     function renderChart() {
       if (!chartEl.value) return;
       if (!chartInstance) {
@@ -544,6 +624,11 @@ createApp({
           connectNulls: true,
         };
         if (isAllMode) {
+          const pinned = new Set(selectedCoins.value);
+          if (pinned.has(coin.ticker)) {
+            s.lineStyle = { color: '#fff', width: 2.5 };
+            s.z = 10;
+          }
           s.emphasis = {
             lineStyle: { color: '#fff', width: 3 },
             itemStyle: { color: '#fff' },
@@ -559,19 +644,38 @@ createApp({
         legend: { show: false },
         grid: { top: 20, right: 20, bottom: 60, left: 70 },
         tooltip: {
-          trigger: isAllMode ? 'item' : 'axis',
+          trigger: 'axis',
           backgroundColor: '#111',
           borderColor: '#333',
           textStyle: { color: '#e0e0e0', fontSize: 12, fontFamily: 'monospace' },
           formatter: isAllMode
             ? (params) => {
-                const p = Array.isArray(params) ? params[0] : params;
-                if (!p || p.value == null) return '';
-                const val = Number(p.value).toFixed(2);
-                const sign = p.value >= 0 ? '+' : '';
-                const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
-                return `<div style="font-weight:600;margin-bottom:4px">${p.seriesName}</div>
-                  <span style="color:${valColor}">${sign}${val}</span>`;
+                if (!Array.isArray(params) || !params.length) return '';
+                // Show pinned coins + the one closest to cursor
+                const pinned = new Set(selectedCoins.value);
+                const withData = params.filter(p => p.value != null);
+                if (!withData.length) return '';
+                let shown = withData.filter(p => pinned.has(p.seriesName));
+                // Find nearest non-pinned by y distance to cursor
+                const unpinned = withData.filter(p => !pinned.has(p.seriesName));
+                if (unpinned.length) {
+                  // Just show the top value coin if nothing is pinned
+                  unpinned.sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+                  shown.push(unpinned[0]);
+                }
+                let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
+                for (const p of shown) {
+                  const val = Number(p.value).toFixed(2);
+                  const sign = p.value >= 0 ? '+' : '';
+                  const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
+                  const isPinned = pinned.has(p.seriesName);
+                  html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${isPinned ? '#fff' : '#888'};display:inline-block"></span>
+                    <span style="color:${isPinned ? '#fff' : '#ccc'}">${p.seriesName}</span>
+                    <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
+                  </div>`;
+                }
+                return html;
               }
             : (params) => {
                 let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
@@ -615,6 +719,31 @@ createApp({
         ],
         series,
       }, { replaceMerge: ['series'] });
+
+      // Wire up hover/click events for all-coins mode
+      chartInstance.off('mouseover');
+      chartInstance.off('mouseout');
+      chartInstance.off('click');
+      if (isAllMode) {
+        chartInstance.on('mouseover', 'series', (params) => {
+          const lastPt = activeCoins.value.find(c => c.ticker === params.seriesName);
+          const pts = lastPt?.points || [];
+          const lastPower = pts.length ? Number(pts[pts.length - 1].power) || 0 : 0;
+          hoveredCoin.value = { name: params.seriesName, power: lastPower };
+        });
+        chartInstance.on('mouseout', 'series', () => {
+          hoveredCoin.value = null;
+        });
+        chartInstance.on('click', 'series', (params) => {
+          const ticker = params.seriesName;
+          if (selectedCoins.value.includes(ticker)) {
+            selectedCoins.value = selectedCoins.value.filter(t => t !== ticker);
+          } else {
+            selectedCoins.value.push(ticker);
+          }
+          updateHighlights();
+        });
+      }
     }
 
     // ── Tab switching ──
@@ -703,6 +832,7 @@ createApp({
       coins, sortedCoins, sortCol, sortDir, setSort,
       activeCoins, showDropdown, searchQuery, searchInput,
       chartDays, filteredCoinList, chartEl, chartPreset,
+      hoveredCoin, selectedCoins, deselectCoin,
       isCoinActive, addCoin, removeCoin, fetchChartData, setPreset,
       fmtUsd, fmtPct, fmtPower, powerClass, changeClass, timeAgo,
     };
