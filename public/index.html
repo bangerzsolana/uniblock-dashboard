@@ -348,14 +348,16 @@
 
     <div class="preset-desc" v-if="presetDescription">{{ presetDescription }}</div>
 
-    <div class="chart-legend" v-if="chartPreset !== 'all' && chartPreset !== 'game'">
+    <!-- Legend for colored-line modes (small groups) -->
+    <div class="chart-legend" v-if="!isGrayMode">
       <div class="legend-pill" v-for="coin in activeCoins" :key="coin.ticker">
         <span class="legend-dot" :style="{ background: coin.color }"></span>
         {{ coin.ticker }}
-        <span class="legend-remove" @click="removeCoin(coin.ticker)" v-if="chartPreset === 'custom' && activeCoins.length > 1">&times;</span>
+        <span class="legend-remove" @click="removeCoin(coin.ticker)" v-if="activeCoins.length > 1">&times;</span>
       </div>
     </div>
-    <div v-if="chartPreset === 'all' || chartPreset === 'game'">
+    <!-- Hover label + pinned pills for gray-line modes (all/game) -->
+    <div v-if="isGrayMode">
       <div class="selected-pills" v-if="selectedCoins.length">
         <div class="legend-pill selected" v-for="ticker in selectedCoins" :key="ticker">
           <span class="legend-dot" style="background:#fff"></span>
@@ -369,9 +371,10 @@
           <span class="coin-power" :class="hoveredCoin.power >= 0 ? 'positive' : 'negative'">
             {{ hoveredCoin.power >= 0 ? '+' : '' }}{{ hoveredCoin.power.toFixed(2) }} power
           </span>
+          <span style="color:#444;font-size:10px">(click to pin)</span>
         </template>
         <template v-else>
-          <span style="color:#555;font-size:11px">Hover to identify, click to pin. {{ activeCoins.length }} coins loaded.</span>
+          <span style="color:#555;font-size:11px">Hover over a line to identify it. {{ activeCoins.length }} coins loaded.</span>
         </template>
       </div>
     </div>
@@ -438,8 +441,8 @@ createApp({
     const chartPreset = ref('top10');
     const hoveredCoin = ref(null);
     const selectedCoins = ref([]);
-    const lastAxisParams = ref([]);
-    let cursorYValue = null; // track cursor y-axis value for nearest-line detection
+
+    const isGrayMode = computed(() => chartPreset.value === 'all' || chartPreset.value === 'game');
 
     const presetDescription = computed(() => {
       const descs = {
@@ -645,32 +648,29 @@ createApp({
       };
 
       const isAllMode = chartPreset.value === 'all' || chartPreset.value === 'game';
+      const pinned = new Set(selectedCoins.value);
       const series = activeCoins.value.map(coin => {
         const byTime = {};
         for (const pt of coin.points) byTime[pt.ts] = Number(pt.power);
-        const s = {
+        const isPinned = isAllMode && pinned.has(coin.ticker);
+        return {
           name: coin.ticker,
           type: 'line',
           smooth: 0.3,
-          symbol: 'none',
-          lineStyle: { color: coin.color, width: isAllMode ? 1 : 2 },
-          itemStyle: { color: coin.color },
+          showSymbol: false,
+          lineStyle: {
+            color: isPinned ? '#fff' : coin.color,
+            width: isPinned ? 2.5 : (isAllMode ? 1 : 2),
+          },
+          itemStyle: { color: isPinned ? '#fff' : coin.color },
           data: times.map(t => byTime[t] ?? null),
           connectNulls: true,
-        };
-        if (isAllMode) {
-          const pinned = new Set(selectedCoins.value);
-          if (pinned.has(coin.ticker)) {
-            s.lineStyle = { color: '#fff', width: 2.5 };
-            s.z = 10;
-          }
-          s.emphasis = {
+          z: isPinned ? 10 : 1,
+          emphasis: isAllMode ? {
             lineStyle: { color: '#fff', width: 3 },
-            itemStyle: { color: '#fff' },
-          };
-          s.triggerLineEvent = true;
-        }
-        return s;
+          } : undefined,
+          triggerLineEvent: true,
+        };
       });
 
       chartInstance.setOption({
@@ -684,77 +684,84 @@ createApp({
           borderColor: '#333',
           textStyle: { color: '#e0e0e0', fontSize: 12, fontFamily: 'monospace' },
           confine: true,
-          formatter: isAllMode
-            ? (params) => {
-                if (!Array.isArray(params) || !params.length) return '';
-                const pinned = new Set(selectedCoins.value);
-                const withData = params.filter(p => p.value != null);
-                if (!withData.length) return '';
+          enterable: true,
+          axisPointer: {
+            type: 'line',
+            lineStyle: { color: '#444', width: 1 },
+            snap: true,
+          },
+          formatter: (params) => {
+            if (!Array.isArray(params) || !params.length) return '';
+            const withData = params.filter(p => p.value != null);
+            if (!withData.length) return '';
 
-                // Find the series closest to cursor y-position
-                let nearest = withData[0];
-                if (cursorYValue !== null) {
-                  let minDist = Infinity;
-                  for (const p of withData) {
-                    const dist = Math.abs(Number(p.value) - cursorYValue);
-                    if (dist < minDist) { minDist = dist; nearest = p; }
-                  }
+            if (isAllMode) {
+              // Find the series closest to cursor y-position
+              let nearest = withData[0];
+              if (cursorYValue !== null) {
+                let minDist = Infinity;
+                for (const p of withData) {
+                  const dist = Math.abs(Number(p.value) - cursorYValue);
+                  if (dist < minDist) { minDist = dist; nearest = p; }
                 }
-
-                // Store for click-to-pin (nearest first)
-                lastAxisParams.value = [nearest, ...withData.filter(p => p !== nearest)];
-
-                // Update hoveredCoin label to nearest line
-                hoveredCoin.value = { name: nearest.seriesName, power: Number(nearest.value) };
-
-                // Temporarily highlight the nearest line
-                chartInstance.dispatchAction({ type: 'highlight', seriesName: nearest.seriesName });
-
-                // Show: nearest coin + pinned coins + a few top movers
-                const pinnedItems = withData.filter(p => pinned.has(p.seriesName) && p !== nearest);
-                const topMovers = [...withData]
-                  .filter(p => !pinned.has(p.seriesName) && p !== nearest)
-                  .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
-                  .slice(0, 3);
-                const shown = [nearest, ...pinnedItems, ...topMovers];
-
-                let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
-                for (const p of shown) {
-                  const val = Number(p.value).toFixed(2);
-                  const sign = p.value >= 0 ? '+' : '';
-                  const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
-                  const isNearest = p === nearest;
-                  const isPinned = pinned.has(p.seriesName);
-                  const nameColor = isNearest ? '#fff' : isPinned ? '#fff' : '#888';
-                  const dotColor = isNearest ? '#22c55e' : isPinned ? '#fff' : '#555';
-                  html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
-                    <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};display:inline-block"></span>
-                    <span style="color:${nameColor};font-weight:${isNearest ? '700' : '400'}">${p.seriesName}</span>
-                    <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
-                  </div>`;
-                }
-                const remaining = withData.length - shown.length;
-                if (remaining > 0) {
-                  html += `<div style="color:#444;font-size:10px;margin-top:4px">+${remaining} more (click to pin)</div>`;
-                }
-                return html;
               }
-            : (params) => {
-                let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
-                for (const p of params) {
-                  if (p.value == null) continue;
-                  const color = p.color;
-                  const val = Number(p.value).toFixed(2);
-                  const sign = p.value >= 0 ? '+' : '';
-                  const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
-                  html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
-                    <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block"></span>
-                    <span>${p.seriesName}</span>
-                    <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
-                  </div>`;
-                }
-                return html;
-              },
+
+              // Store for click-to-pin
+              lastAxisParams.value = [nearest, ...withData.filter(p => p !== nearest)];
+
+              // Update hover label
+              hoveredCoin.value = { name: nearest.seriesName, power: Number(nearest.value) };
+
+              // Highlight nearest line
+              chartInstance.dispatchAction({ type: 'downplay' });
+              chartInstance.dispatchAction({ type: 'highlight', seriesName: nearest.seriesName });
+
+              // Show: nearest + pinned + top movers
+              const pinnedSet = new Set(selectedCoins.value);
+              const pinnedItems = withData.filter(p => pinnedSet.has(p.seriesName) && p !== nearest);
+              const topMovers = [...withData]
+                .filter(p => !pinnedSet.has(p.seriesName) && p !== nearest)
+                .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+                .slice(0, 3);
+              const shown = [nearest, ...pinnedItems, ...topMovers];
+
+              let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
+              for (const p of shown) {
+                const val = Number(p.value).toFixed(2);
+                const sign = p.value >= 0 ? '+' : '';
+                const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
+                const isNearest = p === nearest;
+                const isPinned = pinnedSet.has(p.seriesName);
+                const nameColor = isNearest ? '#fff' : isPinned ? '#fff' : '#888';
+                const dotColor = isNearest ? '#22c55e' : isPinned ? '#fff' : '#555';
+                html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+                  <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};display:inline-block"></span>
+                  <span style="color:${nameColor};font-weight:${isNearest ? '700' : '400'}">${p.seriesName}</span>
+                  <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
+                </div>`;
+              }
+              const remaining = withData.length - shown.length;
+              if (remaining > 0) {
+                html += `<div style="color:#444;font-size:10px;margin-top:4px">+${remaining} more (click to pin)</div>`;
+              }
+              return html;
+            }
+
+            // Normal mode — show all coins in the group
+            let html = `<div style="margin-bottom:4px;color:#666">${params[0]?.axisValueLabel || ''}</div>`;
+            for (const p of withData) {
+              const color = p.color;
+              const val = Number(p.value).toFixed(2);
+              const sign = p.value >= 0 ? '+' : '';
+              const valColor = p.value >= 0 ? '#22c55e' : '#ef4444';
+              html += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0">
+                <span style="width:8px;height:8px;border-radius:50%;background:${color};display:inline-block"></span>
+                <span>${p.seriesName}</span>
+                <span style="color:${valColor};margin-left:auto">${sign}${val}</span>
+              </div>`;
+            }
+            return html;
+          },
         },
         xAxis: {
           type: 'category',
