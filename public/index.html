@@ -244,6 +244,18 @@
       font-size: 14px;
     }
 
+    td.ca-cell {
+      font-size: 11px;
+      color: #555;
+      cursor: pointer;
+      position: relative;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    td.ca-cell:hover { color: #999; }
+    td.ca-cell.copied { color: #22c55e; }
+
     @media (max-width: 700px) {
       .header h1 { font-size: 16px; }
       table { font-size: 12px; }
@@ -287,6 +299,7 @@
             <th :class="{ sorted: sortCol === 'market_cap' }" @click="setSort('market_cap')">
               MC <span class="arrow" v-if="sortCol === 'market_cap'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
+            <th>CA</th>
           </tr>
         </thead>
         <tbody>
@@ -297,6 +310,9 @@
             <td>{{ fmtUsd(coin.volume) }}</td>
             <td :class="changeClass(coin.change_7d)">{{ fmtPct(coin.change_7d) }}</td>
             <td>{{ fmtUsd(coin.market_cap) }}</td>
+            <td class="ca-cell" :class="{ copied: copiedCa === coin.ticker }" @click="copyCA(coin)" :title="coin.ca || ''">
+              {{ coin.ca ? coin.ca.slice(0, 6) + '...' + coin.ca.slice(-4) : '—' }}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -404,6 +420,14 @@ createApp({
     const coins = ref([]);
     const sortCol = ref('power');
     const sortDir = ref('desc');
+    const copiedCa = ref('');
+
+    function copyCA(coin) {
+      if (!coin.ca) return;
+      navigator.clipboard.writeText(coin.ca);
+      copiedCa.value = coin.ticker;
+      setTimeout(() => { copiedCa.value = ''; }, 1500);
+    }
 
     const sortedCoins = computed(() => {
       const arr = [...coins.value];
@@ -485,9 +509,13 @@ createApp({
         const coinList = await coinsRes.json();
         // Build status lookup from coin list
         const statusMap = {};
-        for (const c of coinList) statusMap[c.ticker] = c.status || 'active';
-        // Merge status into snapshot data
-        coins.value = data.map(d => ({ ...d, status: statusMap[d.ticker] || 'active' }));
+        const caMap = {};
+        for (const c of coinList) {
+          statusMap[c.ticker] = c.status || 'active';
+          caMap[c.ticker] = c.ca || '';
+        }
+        // Merge status and CA into snapshot data
+        coins.value = data.map(d => ({ ...d, status: statusMap[d.ticker] || 'active', ca: caMap[d.ticker] || '' }));
         allCoins.value = coinList;
         if (data.length) lastUpdated.value = new Date(data[0].ts);
       } catch (e) {
@@ -878,7 +906,7 @@ createApp({
     return {
       tab, switchTab,
       tableLoading, chartLoading, lastUpdated,
-      coins, sortedCoins, sortCol, sortDir, setSort,
+      coins, sortedCoins, sortCol, sortDir, setSort, copiedCa, copyCA,
       activeCoins, showDropdown, searchQuery, searchInput,
       chartDays, filteredCoinList, chartEl, chartPreset, presetDescription, isGrayMode,
       hoveredCoin, selectedCoins, deselectCoin,
