@@ -71,8 +71,8 @@
     thead th .arrow { font-size: 10px; margin-left: 4px; }
     tbody tr { border-bottom: 1px solid #111; transition: background 0.1s; }
     tbody tr:hover { background: #0a0a0a; }
-    tbody tr.candidate { background: #0d0d0d; }
-    tbody tr.candidate:hover { background: #121212; }
+    tbody tr.candidate { background: #141414; }
+    tbody tr.candidate:hover { background: #1a1a1a; }
     td { padding: 10px 12px; white-space: nowrap; }
     td.name { font-weight: 600; color: #fff; }
     td.rank { color: #444; font-size: 11px; width: 36px; }
@@ -278,6 +278,11 @@
 
   <!-- TABLE TAB -->
   <div v-show="tab === 'table'">
+    <div class="preset-toggles" style="margin-bottom:16px">
+      <button class="preset-btn" :class="{ active: tableFilter === 'active' }" @click="tableFilter = 'active'">In-Game</button>
+      <button class="preset-btn" :class="{ active: tableFilter === 'candidate' }" @click="tableFilter = 'candidate'">Candidates</button>
+      <button class="preset-btn" :class="{ active: tableFilter === 'all' }" @click="tableFilter = 'all'">All</button>
+    </div>
     <div v-if="tableLoading" class="loading">Loading market data...</div>
     <div v-else class="table-wrap">
       <table>
@@ -421,6 +426,7 @@ createApp({
     const sortCol = ref('power');
     const sortDir = ref('desc');
     const copiedCa = ref('');
+    const tableFilter = ref('active');
 
     function copyCA(coin) {
       if (!coin.ca) return;
@@ -430,7 +436,10 @@ createApp({
     }
 
     const sortedCoins = computed(() => {
-      const arr = [...coins.value];
+      let arr = [...coins.value];
+      if (tableFilter.value !== 'all') {
+        arr = arr.filter(c => c.status === tableFilter.value);
+      }
       arr.sort((a, b) => {
         let va = a[sortCol.value];
         let vb = b[sortCol.value];
@@ -906,7 +915,7 @@ createApp({
     return {
       tab, switchTab,
       tableLoading, chartLoading, lastUpdated,
-      coins, sortedCoins, sortCol, sortDir, setSort, copiedCa, copyCA,
+      coins, sortedCoins, sortCol, sortDir, setSort, copiedCa, copyCA, tableFilter,
       activeCoins, showDropdown, searchQuery, searchInput,
       chartDays, filteredCoinList, chartEl, chartPreset, presetDescription, isGrayMode,
       hoveredCoin, selectedCoins, deselectCoin,
