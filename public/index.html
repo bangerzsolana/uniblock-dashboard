@@ -562,14 +562,13 @@ createApp({
       if (!coins.value.length) await fetchTable();
 
       activeCoins.value = buildActiveCoins(getCoinsForPreset(preset), preset);
-      }
       await fetchChartData();
     }
 
     async function initChart() {
       await fetchCoinList();
       if (!coins.value.length) await fetchTable();
-      activeCoins.value = buildActiveCoins(getCoinsForPreset('top10'), 'top10');
+      activeCoins.value = buildActiveCoins(getCoinsForPreset('game'), 'game');
       await fetchChartData();
     }
 
