@@ -100,6 +100,15 @@
       border: 1px solid #222;
       font-size: 12px;
       color: #ccc;
+      cursor: pointer;
+      transition: opacity 0.15s, border-color 0.15s;
+    }
+    .legend-pill.dimmed {
+      opacity: 0.35;
+    }
+    .legend-pill.soloed {
+      border-color: #fff;
+      color: #fff;
     }
     .legend-dot {
       width: 8px;
@@ -346,10 +355,13 @@
 
     <!-- Legend for colored-line modes (small groups) -->
     <div class="chart-legend" v-if="!isGrayMode">
-      <div class="legend-pill" v-for="coin in activeCoins" :key="coin.ticker">
+      <div class="legend-pill"
+           v-for="coin in activeCoins" :key="coin.ticker"
+           :class="{ dimmed: soloedCoin && soloedCoin !== coin.ticker, soloed: soloedCoin === coin.ticker }"
+           @click="toggleSolo(coin.ticker)">
         <span class="legend-dot" :style="{ background: coin.color }"></span>
         {{ coin.ticker }}
-        <span class="legend-remove" @click="removeCoin(coin.ticker)" v-if="activeCoins.length > 1">&times;</span>
+        <span class="legend-remove" @click.stop="removeCoin(coin.ticker)" v-if="activeCoins.length > 1">&times;</span>
       </div>
     </div>
     <!-- Hover label + pinned pills for gray-line modes (all/game) -->
@@ -449,6 +461,7 @@ createApp({
     const chartPreset = ref('game');
     const hoveredCoin = ref(null);
     const selectedCoins = ref([]);
+    const soloedCoin = ref(null);
 
     const isGrayMode = computed(() => chartPreset.value === 'game' || chartPreset.value === 'candidates');
 
@@ -558,6 +571,7 @@ createApp({
       chartPreset.value = preset;
       hoveredCoin.value = null;
       selectedCoins.value = [];
+      soloedCoin.value = null;
       await fetchCoinList();
       if (!coins.value.length) await fetchTable();
 
@@ -588,6 +602,12 @@ createApp({
 
     function removeCoin(ticker) {
       activeCoins.value = activeCoins.value.filter(c => c.ticker !== ticker);
+      if (soloedCoin.value === ticker) soloedCoin.value = null;
+      renderChart();
+    }
+
+    function toggleSolo(ticker) {
+      soloedCoin.value = soloedCoin.value === ticker ? null : ticker;
       renderChart();
     }
 
@@ -635,10 +655,14 @@ createApp({
 
       const grayMode = isGrayMode.value;
       const pinned = new Set(selectedCoins.value);
+      const solo = soloedCoin.value;
       const series = activeCoins.value.map(coin => {
         const byTime = {};
         for (const pt of coin.points) byTime[pt.ts] = Number(pt.power);
         const isPinned = grayMode && pinned.has(coin.ticker);
+        const isSoloed = !grayMode && solo === coin.ticker;
+        const isDimmed = !grayMode && solo && solo !== coin.ticker;
+        const lineColor = isPinned ? '#fff' : isDimmed ? '#333' : coin.color;
         return {
           name: coin.ticker,
           type: 'line',
@@ -646,13 +670,13 @@ createApp({
           showSymbol: false,
           symbolSize: 6,
           lineStyle: {
-            color: isPinned ? '#fff' : coin.color,
-            width: isPinned ? 2.5 : (grayMode ? 1 : 2),
+            color: lineColor,
+            width: isPinned ? 2.5 : isSoloed ? 2.5 : (grayMode ? 1 : isDimmed ? 1 : 2),
           },
-          itemStyle: { color: isPinned ? '#fff' : coin.color },
+          itemStyle: { color: lineColor },
           data: times.map(t => byTime[t] ?? null),
           connectNulls: true,
-          z: isPinned ? 10 : 1,
+          z: (isPinned || isSoloed) ? 10 : 1,
           emphasis: grayMode ? {
             lineStyle: { color: '#fff', width: 3 },
           } : undefined,
@@ -866,7 +890,7 @@ createApp({
       coins, sortedCoins, sortCol, sortDir, setSort, copiedCa, copyCA, tableFilter,
       activeCoins, showDropdown, searchQuery, searchInput,
       chartDays, filteredCoinList, chartEl, chartPreset, presetDescription, isGrayMode,
-      hoveredCoin, selectedCoins, deselectCoin,
+      hoveredCoin, selectedCoins, deselectCoin, soloedCoin, toggleSolo,
       isCoinActive, addCoin, removeCoin, fetchChartData, setPreset,
       fmtUsd, fmtPct, fmtPower, powerClass, changeClass, timeAgo,
     };
