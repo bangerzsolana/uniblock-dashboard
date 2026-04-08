@@ -328,35 +328,10 @@
   <div v-show="tab === 'chart'">
     <div class="chart-controls">
       <div class="preset-toggles">
-        <button class="preset-btn" :class="{ active: chartPreset === 'top10' }" @click="setPreset('top10')">Top 10</button>
-        <button class="preset-btn" :class="{ active: chartPreset === 'best_worst' }" @click="setPreset('best_worst')">Best & Worst</button>
-        <button class="preset-btn" :class="{ active: chartPreset === 'swingers' }" @click="setPreset('swingers')">Swingers</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'game' }" @click="setPreset('game')">Game Coins</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'candidates' }" @click="setPreset('candidates')">Candidates</button>
-        <button class="preset-btn" :class="{ active: chartPreset === 'all' }" @click="setPreset('all')">All Coins</button>
-        <button class="preset-btn" :class="{ active: chartPreset === 'custom' }" @click="setPreset('custom')">Custom</button>
-      </div>
-      <div class="dropdown" v-if="chartPreset === 'custom'">
-        <button class="add-btn" @click="showDropdown = !showDropdown" :disabled="activeCoins.length >= 15">
-          + Add Coin
-        </button>
-        <div class="dropdown-menu" v-if="showDropdown">
-          <input
-            class="dropdown-search"
-            v-model="searchQuery"
-            placeholder="Search coins..."
-            ref="searchInput"
-          />
-          <div
-            v-for="coin in filteredCoinList"
-            :key="coin.ticker"
-            class="dropdown-item"
-            :class="{ disabled: isCoinActive(coin.ticker) }"
-            @click="addCoin(coin.ticker)"
-          >
-            {{ coin.ticker }}
-          </div>
-        </div>
+        <button class="preset-btn" :class="{ active: chartPreset === 'partner' }" @click="setPreset('partner')">Partner Coins</button>
+        <button class="preset-btn" :class="{ active: chartPreset === 'new_pack' }" @click="setPreset('new_pack')">New Pack Candidates</button>
       </div>
       <select class="days-select" v-model="chartDays" @change="fetchChartData">
         <option value="1">1 Day</option>
@@ -471,21 +446,18 @@ createApp({
     const chartEl = ref(null);
     let chartInstance = null;
     const searchInput = ref(null);
-    const chartPreset = ref('top10');
+    const chartPreset = ref('game');
     const hoveredCoin = ref(null);
     const selectedCoins = ref([]);
 
-    const isGrayMode = computed(() => chartPreset.value === 'all' || chartPreset.value === 'game');
+    const isGrayMode = computed(() => chartPreset.value === 'game' || chartPreset.value === 'candidates');
 
     const presetDescription = computed(() => {
       const descs = {
-        top10: 'Top 10 coins by absolute power — the biggest movers in either direction.',
-        best_worst: 'Best 5 (highest power) vs Worst 5 (lowest power) side by side.',
-        swingers: 'Coins with power beyond +3 or -3 — everything in between is filtered out.',
         game: 'All coins currently active in the game.',
-        candidates: 'Candidate coins being evaluated for addition to the game.',
-        all: 'Every tracked coin. Hover to identify, click to pin.',
-        custom: 'Pick your own coins to compare.',
+        candidates: 'All candidate coins being evaluated for addition to the game.',
+        partner: 'Coins requested by partners.',
+        new_pack: 'New pack candidates — partner requests + top sustainability picks.',
       };
       return descs[chartPreset.value] || '';
     });
@@ -519,12 +491,14 @@ createApp({
         // Build status lookup from coin list
         const statusMap = {};
         const caMap = {};
+        const tagsMap = {};
         for (const c of coinList) {
           statusMap[c.ticker] = c.status || 'active';
           caMap[c.ticker] = c.ca || '';
+          tagsMap[c.ticker] = c.tags || [];
         }
-        // Merge status and CA into snapshot data
-        coins.value = data.map(d => ({ ...d, status: statusMap[d.ticker] || 'active', ca: caMap[d.ticker] || '' }));
+        // Merge status, CA, and tags into snapshot data
+        coins.value = data.map(d => ({ ...d, status: statusMap[d.ticker] || 'active', ca: caMap[d.ticker] || '', tags: tagsMap[d.ticker] || [] }));
         allCoins.value = coinList;
         if (data.length) lastUpdated.value = new Date(data[0].ts);
       } catch (e) {
@@ -564,34 +538,15 @@ createApp({
       const byPowerDesc = [...coins.value].sort((a, b) =>
         (Number(b.power) || 0) - (Number(a.power) || 0)
       );
-      const byAbsPower = [...coins.value].sort((a, b) =>
-        Math.abs(Number(b.power) || 0) - Math.abs(Number(a.power) || 0)
-      );
-      if (preset === 'top10') return byAbsPower.filter(c => Number(c.power) !== 0).slice(0, 10);
-      if (preset === 'best_worst') {
-        const best5 = byPowerDesc.slice(0, 5);
-        const worst5 = byPowerDesc.slice(-5).reverse();
-        const seen = new Set(best5.map(c => c.ticker));
-        const combined = [...best5];
-        for (const c of worst5) {
-          if (!seen.has(c.ticker)) combined.push(c);
-        }
-        return combined;
-      }
-      if (preset === 'swingers') {
-        return byAbsPower.filter(c => {
-          const p = Math.abs(Number(c.power) || 0);
-          return p > 3;
-        });
-      }
       if (preset === 'game') return byPowerDesc.filter(c => c.status === 'active');
       if (preset === 'candidates') return byPowerDesc.filter(c => c.status === 'candidate');
-      if (preset === 'all') return byPowerDesc;
+      if (preset === 'partner') return byPowerDesc.filter(c => (c.tags || []).includes('partner'));
+      if (preset === 'new_pack') return byPowerDesc.filter(c => (c.tags || []).includes('new_pack'));
       return []; // custom — user picks manually
     }
 
     function buildActiveCoins(coinList, preset) {
-      const isGrayMode = preset === 'all' || preset === 'game';
+      const isGrayMode = preset === 'game' || preset === 'candidates';
       return coinList.map((c, i) => ({
         ticker: c.ticker,
         color: isGrayMode ? '#333' : CHART_COLORS[i % CHART_COLORS.length],
@@ -606,13 +561,7 @@ createApp({
       await fetchCoinList();
       if (!coins.value.length) await fetchTable();
 
-      if (preset === 'custom') {
-        // Keep current selection, just switch mode
-        if (!activeCoins.value.length) {
-          activeCoins.value = buildActiveCoins(getCoinsForPreset('top10'), 'custom');
-        }
-      } else {
-        activeCoins.value = buildActiveCoins(getCoinsForPreset(preset), preset);
+      activeCoins.value = buildActiveCoins(getCoinsForPreset(preset), preset);
       }
       await fetchChartData();
     }
