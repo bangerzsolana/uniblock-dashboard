@@ -349,6 +349,22 @@
         <option value="14">14 Days</option>
         <option value="30">30 Days</option>
       </select>
+
+      <div class="dropdown" style="margin-left:auto">
+        <button class="add-btn" @click.stop="showDropdown = !showDropdown" :disabled="activeCoins.length >= 30">
+          + Add Coin
+        </button>
+        <div class="dropdown-menu" v-if="showDropdown" @click.stop>
+          <input class="dropdown-search" ref="searchInput" v-model="searchQuery" placeholder="Search ticker..." />
+          <div v-for="c in filteredCoinList" :key="c.ticker"
+               class="dropdown-item" :class="{ disabled: isCoinActive(c.ticker) }"
+               @click="!isCoinActive(c.ticker) && addCoin(c.ticker)">
+            {{ c.ticker }} <span style="color:#555;margin-left:4px">{{ c.symbol }}</span>
+            <span v-if="isCoinActive(c.ticker)" style="color:#333;float:right">✓</span>
+          </div>
+          <div v-if="!filteredCoinList.length" style="padding:12px;color:#444;font-size:12px">No matches</div>
+        </div>
+      </div>
     </div>
 
     <div class="preset-desc" v-if="presetDescription">{{ presetDescription }}</div>
@@ -587,15 +603,20 @@ createApp({
     }
 
     async function addCoin(ticker) {
-      if (isCoinActive(ticker) || activeCoins.value.length >= 15) return;
+      if (isCoinActive(ticker) || activeCoins.value.length >= 30) return;
       showDropdown.value = false;
       searchQuery.value = '';
 
       activeCoins.value.push({
         ticker,
-        color: nextColor(),
+        color: isGrayMode.value ? '#333' : nextColor(),
         points: [],
       });
+
+      // In gray mode, auto-pin the added coin so it's visible
+      if (isGrayMode.value && !selectedCoins.value.includes(ticker)) {
+        selectedCoins.value.push(ticker);
+      }
 
       await fetchChartData();
     }
@@ -687,7 +708,7 @@ createApp({
         backgroundColor: '#000',
         animation: false,
         legend: { show: false },
-        grid: { top: 20, right: 20, bottom: 60, left: 70 },
+        grid: { top: 20, right: 20, bottom: 80, left: 70 },
         tooltip: {
           trigger: 'axis',
           backgroundColor: '#111',
@@ -779,6 +800,20 @@ createApp({
         },
         dataZoom: [
           { type: 'inside', start: 0, end: 100, minSpan: 5 },
+          {
+            type: 'slider',
+            start: 0,
+            end: 100,
+            height: 20,
+            bottom: 8,
+            borderColor: '#222',
+            backgroundColor: '#0a0a0a',
+            fillerColor: 'rgba(255,255,255,0.05)',
+            handleStyle: { color: '#555', borderColor: '#777' },
+            textStyle: { color: '#555', fontSize: 10 },
+            dataBackground: { lineStyle: { color: '#333' }, areaStyle: { color: '#111' } },
+            selectedDataBackground: { lineStyle: { color: '#555' }, areaStyle: { color: '#1a1a1a' } },
+          },
         ],
         series,
       }, { replaceMerge: ['series'] });
