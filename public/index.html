@@ -341,7 +341,7 @@
         <button class="preset-btn" :class="{ active: chartPreset === 'candidates' }" @click="setPreset('candidates')">Candidates</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'partner' }" @click="setPreset('partner')">Partner Coins</button>
         <button class="preset-btn" :class="{ active: chartPreset === 'new_pack' }" @click="setPreset('new_pack')">New Pack Candidates</button>
-        <button class="preset-btn" :class="{ active: chartPreset === 'hyperliquid' }" @click="setPreset('hyperliquid')">Hyperliquid</button>
+        <button class="preset-btn" :class="{ active: chartPreset === 'commodities_pack' }" @click="setPreset('commodities_pack')">Commodities Pack</button>
       </div>
       <select class="days-select" v-model="chartDays" @change="fetchChartData">
         <option value="1">1 Day</option>
@@ -488,7 +488,7 @@ createApp({
         candidates: 'All candidate coins being evaluated for addition to the game.',
         partner: 'Coins requested by partners.',
         new_pack: 'New pack candidates — partner requests + top sustainability picks.',
-        hyperliquid: 'Hyperliquid perps — crypto, commodities, and futures.',
+        commodities_pack: 'Real-world value items — precious metals, energy, and collectibles.',
       };
       return descs[chartPreset.value] || '';
     });
@@ -570,7 +570,7 @@ createApp({
       if (preset === 'candidates') return byPowerDesc.filter(c => c.status === 'candidate');
       if (preset === 'partner') return byPowerDesc.filter(c => (c.tags || []).includes('partner'));
       if (preset === 'new_pack') return byPowerDesc.filter(c => (c.tags || []).includes('new_pack'));
-      if (preset === 'hyperliquid') return byPowerDesc.filter(c => c.provider === 'hyperliquid');
+      if (preset === 'commodities_pack') return byPowerDesc.filter(c => (c.tags || []).includes('commodities_pack'));
       return []; // custom — user picks manually
     }
 
