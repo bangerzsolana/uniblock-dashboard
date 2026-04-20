@@ -704,6 +704,30 @@ createApp({
         };
       });
 
+      // Auto-clip Y-axis to ignore extreme outliers.
+      // Collects all power values, computes 5th/95th percentiles.
+      // If the true max/min are >5x the percentile range, clip to percentiles + padding.
+      const allPowerValues = [];
+      for (const s of series) {
+        for (const v of s.data) {
+          if (v != null && Number.isFinite(v)) allPowerValues.push(v);
+        }
+      }
+      let yMin, yMax;
+      if (allPowerValues.length > 10) {
+        const sorted = [...allPowerValues].sort((a, b) => a - b);
+        const p = (q) => sorted[Math.floor(sorted.length * q)];
+        const p5 = p(0.05), p95 = p(0.95);
+        const absMin = sorted[0], absMax = sorted[sorted.length - 1];
+        const pRange = Math.max(p95 - p5, 1);
+        // Only clip if there are extreme outliers (>5x the percentile range)
+        if ((absMax - p95) > 5 * pRange || (p5 - absMin) > 5 * pRange) {
+          const pad = pRange * 0.15;
+          yMin = p5 - pad;
+          yMax = p95 + pad;
+        }
+      }
+
       chartInstance.setOption({
         backgroundColor: '#000',
         animation: false,
@@ -797,6 +821,7 @@ createApp({
           axisLine: { show: false },
           axisLabel: { color: '#555', fontSize: 11 },
           splitLine: { lineStyle: { color: '#151515' } },
+          ...(yMin != null && yMax != null ? { min: yMin, max: yMax } : {}),
         },
         dataZoom: [
           { type: 'inside', start: 0, end: 100, minSpan: 5 },
