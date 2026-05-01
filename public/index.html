@@ -263,6 +263,102 @@
       font-size: 14px;
     }
 
+    /* Add-coin button */
+    .add-coin-btn {
+      margin-left: auto;
+      padding: 5px 14px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #ccc;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .add-coin-btn:hover { background: #222; border-color: #555; color: #fff; }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+      padding: 16px;
+    }
+    .modal {
+      background: #0d0d0d;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      width: 100%;
+      max-width: 460px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+    }
+    .modal-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid #1f1f1f;
+    }
+    .modal-header h2 {
+      font-size: 14px; font-weight: 700; color: #fff;
+      letter-spacing: 0.5px; text-transform: uppercase;
+    }
+    .modal-close {
+      background: none; border: none; color: #666;
+      font-size: 24px; line-height: 1; cursor: pointer; padding: 0 4px;
+    }
+    .modal-close:hover { color: #fff; }
+    .modal-body { padding: 20px; }
+    .modal-body label {
+      display: block; font-size: 11px; color: #888;
+      text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+    }
+    .modal-input {
+      width: 100%;
+      padding: 10px 12px;
+      background: #000;
+      border: 1px solid #333;
+      border-radius: 4px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+    .modal-input:focus { border-color: #555; }
+    .modal-error {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid #ef4444;
+      border-radius: 4px;
+      color: #ef4444;
+      font-size: 12px;
+    }
+    .modal-preview {
+      margin-top: 16px;
+      padding: 12px 14px;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 4px;
+    }
+    .preview-row {
+      display: flex; justify-content: space-between;
+      padding: 4px 0; font-size: 12px; color: #888;
+    }
+    .preview-val { color: #fff; font-weight: 600; }
+    .modal-footer {
+      display: flex; gap: 8px; justify-content: flex-end;
+      padding: 12px 20px;
+      border-top: 1px solid #1f1f1f;
+    }
+    .modal-note {
+      padding: 10px 20px 16px;
+      font-size: 11px; color: #555; font-style: italic; text-align: center;
+    }
+
     @media (max-width: 700px) {
       .header h1 { font-size: 16px; }
       table { font-size: 12px; }
@@ -285,10 +381,11 @@
 
   <!-- TABLE TAB -->
   <div v-show="tab === 'table'">
-    <div class="preset-toggles" style="margin-bottom:16px">
+    <div class="preset-toggles" style="margin-bottom:16px;display:flex;align-items:center;gap:6px">
       <button class="preset-btn" :class="{ active: tableFilter === 'active' }" @click="tableFilter = 'active'">In-Game</button>
       <button class="preset-btn" :class="{ active: tableFilter === 'candidate' }" @click="tableFilter = 'candidate'">Candidates</button>
       <button class="preset-btn" :class="{ active: tableFilter === 'all' }" @click="tableFilter = 'all'">All</button>
+      <button class="add-coin-btn" @click="openAddCoin" title="Add a new coin">+ Add Coin</button>
     </div>
     <div v-if="tableLoading" class="loading">Loading market data...</div>
     <div v-else class="table-wrap">
@@ -407,6 +504,58 @@
     <div v-if="chartLoading" class="loading">Loading chart data...</div>
     <div class="chart-container" ref="chartEl"></div>
   </div>
+
+  <!-- ADD COIN MODAL -->
+  <div v-if="showAddCoin" class="modal-backdrop" @click.self="closeAddCoin">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Add a coin</h2>
+        <button class="modal-close" @click="closeAddCoin">×</button>
+      </div>
+      <div class="modal-body">
+        <label>Contract Address (Solana)</label>
+        <input
+          v-model="addCoinCa"
+          class="modal-input"
+          placeholder="e.g. DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+          autofocus
+        />
+        <label style="margin-top:12px">Ticker</label>
+        <input
+          v-model="addCoinTicker"
+          class="modal-input"
+          placeholder="e.g. $BONK"
+          @keyup.enter="previewCoin"
+        />
+
+        <div v-if="addCoinError" class="modal-error">{{ addCoinError }}</div>
+
+        <div v-if="addCoinPreview" class="modal-preview">
+          <div class="preview-row"><span>Provider:</span><span class="preview-val">{{ addCoinPreview.provider.toUpperCase() }}</span></div>
+          <div class="preview-row"><span>Name:</span><span class="preview-val">{{ addCoinPreview.name }}</span></div>
+          <div class="preview-row"><span>Symbol:</span><span class="preview-val">{{ addCoinPreview.symbol }}</span></div>
+          <div class="preview-row"><span>Price:</span><span class="preview-val">{{ fmtUsd(addCoinPreview.price) }}</span></div>
+          <div class="preview-row"><span>24h Volume:</span><span class="preview-val">{{ fmtUsd(addCoinPreview.volume24h) }}</span></div>
+          <div class="preview-row"><span>Market Cap:</span><span class="preview-val">{{ fmtUsd(addCoinPreview.marketCap) }}</span></div>
+          <div class="preview-row"><span>7d Change:</span><span class="preview-val" :class="(addCoinPreview.change7d ?? 0) >= 0 ? 'positive' : 'negative'">{{ fmtPct(addCoinPreview.change7d) }}</span></div>
+          <div class="preview-row"><span>Power:</span><span class="preview-val" :class="powerClass(addCoinPreview.power)">{{ fmtPower(addCoinPreview.power) }}</span></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="preset-btn" @click="closeAddCoin">Cancel</button>
+        <button v-if="!addCoinPreview" class="preset-btn active" :disabled="addCoinLoading" @click="previewCoin">
+          {{ addCoinLoading ? 'Looking up…' : 'Preview' }}
+        </button>
+        <template v-else>
+          <button class="preset-btn" @click="addCoinPreview = null">Edit</button>
+          <button class="preset-btn active" :disabled="addCoinLoading" @click="confirmAddCoin">
+            {{ addCoinLoading ? 'Saving…' : 'Add to dashboard' }}
+          </button>
+        </template>
+      </div>
+      <div class="modal-note">Data takes ~5 minutes to start showing on the chart (next cron tick).</div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -431,6 +580,75 @@ createApp({
     const sortDir = ref('desc');
     const copiedCa = ref('');
     const tableFilter = ref('active');
+
+    // ── Add coin modal state ──
+    const showAddCoin = ref(false);
+    const addCoinCa = ref('');
+    const addCoinTicker = ref('');
+    const addCoinPreview = ref(null);
+    const addCoinLoading = ref(false);
+    const addCoinError = ref('');
+
+    function openAddCoin() {
+      showAddCoin.value = true;
+      addCoinCa.value = '';
+      addCoinTicker.value = '';
+      addCoinPreview.value = null;
+      addCoinError.value = '';
+    }
+
+    function closeAddCoin() {
+      showAddCoin.value = false;
+    }
+
+    async function previewCoin() {
+      if (!addCoinCa.value.trim() || !addCoinTicker.value.trim()) {
+        addCoinError.value = 'Please enter both a CA and a ticker.';
+        return;
+      }
+      addCoinLoading.value = true;
+      addCoinError.value = '';
+      try {
+        const res = await fetch('/api/coins/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ca: addCoinCa.value.trim(), ticker: addCoinTicker.value.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          addCoinError.value = data.message || data.error || 'Lookup failed.';
+        } else {
+          addCoinPreview.value = data;
+        }
+      } catch (e) {
+        addCoinError.value = `Network error: ${e.message}`;
+      }
+      addCoinLoading.value = false;
+    }
+
+    async function confirmAddCoin() {
+      addCoinLoading.value = true;
+      addCoinError.value = '';
+      try {
+        const res = await fetch('/api/coins', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ca: addCoinCa.value.trim(), ticker: addCoinTicker.value.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          addCoinError.value = data.message || data.error || 'Save failed.';
+          addCoinLoading.value = false;
+          return;
+        }
+        // Success — close and refresh table
+        closeAddCoin();
+        await fetchTable();
+      } catch (e) {
+        addCoinError.value = `Network error: ${e.message}`;
+      }
+      addCoinLoading.value = false;
+    }
 
     function copyCA(coin) {
       if (!coin.ca) return;
@@ -953,6 +1171,8 @@ createApp({
       hoveredCoin, selectedCoins, deselectCoin, soloedCoin, toggleSolo,
       isCoinActive, addCoin, removeCoin, fetchChartData, setPreset,
       fmtUsd, fmtPct, fmtPower, powerClass, changeClass, timeAgo,
+      showAddCoin, addCoinCa, addCoinTicker, addCoinPreview, addCoinLoading, addCoinError,
+      openAddCoin, closeAddCoin, previewCoin, confirmAddCoin,
     };
   },
 }).mount('#app');
